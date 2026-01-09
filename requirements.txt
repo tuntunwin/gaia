@@ -1,0 +1,7 @@
+smolagents>=1.0.0
+datasets>=2.14.0
+huggingface-hub>=0.20.0
+transformers>=4.30.0
+torch>=2.0.0
+python-dotenv>=1.0.0
+ddgs>=0.1.0
