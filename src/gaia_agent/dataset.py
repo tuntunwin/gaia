@@ -40,9 +40,10 @@ class GAIADatasetLoader:
             cache_dir=self.cache_dir
         )
         
-        # Filter by level if specified
+        # Filter by level if specified (Level field is a string in the dataset)
         if level is not None:
-            self.dataset = self.dataset.filter(lambda x: x["Level"] == level)
+            level_str = str(level)
+            self.dataset = self.dataset.filter(lambda x: x["Level"] == level_str)
         
         return self.dataset
     

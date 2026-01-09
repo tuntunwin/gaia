@@ -6,7 +6,7 @@ This module provides an AI agent capable of answering GAIA benchmark Level 1 que
 
 import os
 from typing import Optional, Dict, Any
-from smolagents import CodeAgent, ApiModel, DuckDuckGoSearchTool, VisitWebpageTool
+from smolagents import CodeAgent, InferenceClientModel, DuckDuckGoSearchTool, VisitWebpageTool
 
 
 class GAIAAgent:
@@ -33,14 +33,14 @@ class GAIAAgent:
             additional_tools: Additional tools to add to the agent
         """
         # Set up API token
-        if api_token:
-            os.environ["HF_TOKEN"] = api_token
+        token = api_token or os.environ.get("HF_TOKEN")
         
-        # Initialize the model
-        if model_id:
-            self.model = ApiModel(model_id=model_id)
-        else:
-            self.model = ApiModel()
+        # Initialize the model (InferenceClientModel uses HF Inference API)
+        default_model = "Qwen/Qwen2.5-Coder-32B-Instruct"
+        self.model = InferenceClientModel(
+            model_id=model_id or default_model,
+            token=token
+        )
         
         # Set up default tools for GAIA benchmark
         self.tools = [

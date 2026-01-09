@@ -39,34 +39,50 @@ gaia/
 ### Prerequisites
 
 - Python 3.8 or higher
+- [uv](https://docs.astral.sh/uv/) - Fast Python package manager (recommended)
 - Hugging Face account and API token ([get one here](https://huggingface.co/settings/tokens))
 
 ### Setup
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/tuntunwin/gaia.git
 cd gaia
 ```
 
-2. Install dependencies:
+2. Install uv (if not already installed):
+
 ```bash
-pip install -r requirements.txt
+# Windows
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-3. Install the package in development mode:
+3. Install dependencies:
+
 ```bash
-pip install -e .
+uv pip install -r requirements.txt
+```
+
+4. Install the package in development mode:
+
+```bash
+uv pip install -e .
 ```
 
 4. Set your Hugging Face API token:
+
 ```bash
 export HF_TOKEN="your_huggingface_token_here"
 ```
 
 Or create a `.env` file:
+
 ```bash
-echo "HF_TOKEN=your_huggingface_token_here" > .env
+	echo "HF_TOKEN=your_huggingface_token_here" > .env
 ```
 
 ## Usage
@@ -74,28 +90,33 @@ echo "HF_TOKEN=your_huggingface_token_here" > .env
 ### Command-Line Interface
 
 #### Ask a single question:
+
 ```bash
-gaia-agent --question "What is the capital of France?"
+uv run gaia-agent --question "What is the capital of France?"
 ```
 
 #### Evaluate on GAIA benchmark (Level 1 validation set):
+
 ```bash
-gaia-agent --evaluate --split validation --level 1
+uv run gaia-agent --evaluate --split validation --level 1
 ```
 
 #### Evaluate with limited questions (for testing):
+
 ```bash
-gaia-agent --evaluate --level 1 --max-questions 5
+uv run gaia-agent --evaluate --level 1 --max-questions 5
 ```
 
 #### Use a specific model:
+
 ```bash
-gaia-agent --question "Who wrote Romeo and Juliet?" --model "meta-llama/Llama-3.1-70B-Instruct"
+uv run gaia-agent --question "Who wrote Romeo and Juliet?" --model "meta-llama/Llama-3.1-70B-Instruct"
 ```
 
 ### Python API
 
 #### Basic usage:
+
 ```python
 from gaia_agent.agent import GAIAAgent
 
@@ -108,6 +129,7 @@ print(answer)
 ```
 
 #### Working with GAIA dataset:
+
 ```python
 from gaia_agent.agent import GAIAAgent
 from gaia_agent.dataset import GAIADatasetLoader
@@ -125,6 +147,7 @@ print(f"Answer: {result['answer']}")
 ```
 
 #### Evaluation:
+
 ```python
 from gaia_agent.agent import GAIAAgent
 from gaia_agent.dataset import GAIADatasetLoader, GAIAEvaluator
@@ -139,12 +162,12 @@ evaluator = GAIAEvaluator()
 results = []
 for q in questions[:5]:  # Test on first 5 questions
     result = agent.answer_gaia_question(q)
-    
+  
     # Check if correct
     if "Final answer" in q:
         correct = evaluator.evaluate_answer(result["answer"], q["Final answer"])
         result["correct"] = correct
-    
+  
     results.append(result)
 
 # Calculate accuracy
@@ -155,8 +178,9 @@ print(f"Accuracy: {accuracy:.2%}")
 ### Example Scripts
 
 Run the example script to see the agent in action:
+
 ```bash
-python examples.py
+uv run python examples.py
 ```
 
 ## GAIA Benchmark
@@ -168,6 +192,7 @@ The GAIA (General AI Assistants) benchmark consists of questions at three diffic
 - **Level 3**: Advanced questions requiring multi-step reasoning and tool use
 
 Each question may include:
+
 - A text question
 - Optional file attachments (PDFs, images, spreadsheets, audio)
 - A ground truth answer for validation
@@ -183,6 +208,7 @@ The GAIA Agent uses smolagents' `CodeAgent`, which:
 5. **Returns the final answer**
 
 The agent has access to:
+
 - `DuckDuckGoSearchTool`: Search the web
 - `VisitWebpageTool`: Visit and extract content from webpages
 - Python code execution for calculations and data processing
@@ -192,11 +218,13 @@ The agent has access to:
 You can customize the agent by:
 
 ### Using a different model:
+
 ```python
 agent = GAIAAgent(model_id="meta-llama/Llama-3.1-70B-Instruct")
 ```
 
 ### Adding custom tools:
+
 ```python
 from smolagents import tool
 
@@ -211,17 +239,19 @@ agent = GAIAAgent(additional_tools=[custom_calculator])
 ## Development
 
 ### Running tests:
+
 ```bash
-python -m pytest tests/
+uv run pytest tests/
 ```
 
 ### Code style:
+
 ```bash
 # Format code
-black src/
+uv run black src/
 
 # Type checking
-mypy src/
+uv run mypy src/
 ```
 
 ## Limitations
