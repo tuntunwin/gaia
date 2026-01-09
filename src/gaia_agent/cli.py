@@ -31,7 +31,8 @@ def evaluate_on_dataset(
     evaluator = GAIAEvaluator()
     
     print(f"Loading GAIA dataset (split={split}, level={level})...")
-    questions = loader.get_level_1_questions(split=split)
+    dataset = loader.load_dataset(split=split, level=level)
+    questions = [dict(item) for item in dataset]
     
     if max_questions:
         questions = questions[:max_questions]
