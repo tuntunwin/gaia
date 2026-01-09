@@ -1,16 +1,18 @@
 """Tests for the GAIA agent module."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from gaia_agent.agent import GAIAAgent
 
 
 class TestGAIAAgent:
     """Test cases for GAIAAgent class."""
     
-    def test_agent_initialization(self):
+    @patch('gaia_agent.agent.DuckDuckGoSearchTool')
+    @patch('gaia_agent.agent.VisitWebpageTool')
+    def test_agent_initialization(self, mock_webpage_tool, mock_search_tool):
         """Test that agent initializes correctly."""
-        with patch('gaia_agent.agent.HfApiModel') as mock_model:
+        with patch('gaia_agent.agent.ApiModel') as mock_model:
             with patch('gaia_agent.agent.CodeAgent') as mock_agent:
                 agent = GAIAAgent()
                 assert agent is not None
@@ -18,16 +20,20 @@ class TestGAIAAgent:
                 assert hasattr(agent, 'tools')
                 assert hasattr(agent, 'model')
     
-    def test_agent_with_custom_model(self):
+    @patch('gaia_agent.agent.DuckDuckGoSearchTool')
+    @patch('gaia_agent.agent.VisitWebpageTool')
+    def test_agent_with_custom_model(self, mock_webpage_tool, mock_search_tool):
         """Test agent initialization with custom model."""
-        with patch('gaia_agent.agent.HfApiModel') as mock_model:
+        with patch('gaia_agent.agent.ApiModel') as mock_model:
             with patch('gaia_agent.agent.CodeAgent') as mock_agent:
                 agent = GAIAAgent(model_id="test-model")
                 mock_model.assert_called_once()
     
-    def test_answer_gaia_question(self):
+    @patch('gaia_agent.agent.DuckDuckGoSearchTool')
+    @patch('gaia_agent.agent.VisitWebpageTool')
+    def test_answer_gaia_question(self, mock_webpage_tool, mock_search_tool):
         """Test answering a GAIA question."""
-        with patch('gaia_agent.agent.HfApiModel'):
+        with patch('gaia_agent.agent.ApiModel'):
             with patch('gaia_agent.agent.CodeAgent') as mock_agent:
                 agent = GAIAAgent()
                 
@@ -47,9 +53,11 @@ class TestGAIAAgent:
                 assert result["level"] == 1
                 assert result["question"] == "What is 2+2?"
     
-    def test_answer_gaia_question_with_file(self):
+    @patch('gaia_agent.agent.DuckDuckGoSearchTool')
+    @patch('gaia_agent.agent.VisitWebpageTool')
+    def test_answer_gaia_question_with_file(self, mock_webpage_tool, mock_search_tool):
         """Test answering a GAIA question with file attachment."""
-        with patch('gaia_agent.agent.HfApiModel'):
+        with patch('gaia_agent.agent.ApiModel'):
             with patch('gaia_agent.agent.CodeAgent') as mock_agent:
                 agent = GAIAAgent()
                 agent.agent.run = Mock(return_value="Test answer")
@@ -64,4 +72,7 @@ class TestGAIAAgent:
                 result = agent.answer_gaia_question(question_data)
                 
                 assert result["task_id"] == "test-002"
-                assert "file" in result["question"].lower() or "Note" in result["question"]
+                assert result["question"] == "What is in the document?"
+                # Check that the agent was called with modified question including file note
+                call_args = agent.agent.run.call_args[0][0]
+                assert "test.pdf" in call_args and "Note" in call_args

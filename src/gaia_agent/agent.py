@@ -6,7 +6,7 @@ This module provides an AI agent capable of answering GAIA benchmark Level 1 que
 
 import os
 from typing import Optional, Dict, Any
-from smolagents import CodeAgent, HfApiModel, DuckDuckGoSearchTool, VisitWebpageTool
+from smolagents import CodeAgent, ApiModel, DuckDuckGoSearchTool, VisitWebpageTool
 
 
 class GAIAAgent:
@@ -28,7 +28,7 @@ class GAIAAgent:
         Initialize the GAIA agent.
         
         Args:
-            model_id: Hugging Face model ID to use (default: uses HfApiModel default)
+            model_id: Hugging Face model ID to use (default: uses ApiModel default)
             api_token: Hugging Face API token (default: uses HF_TOKEN env variable)
             additional_tools: Additional tools to add to the agent
         """
@@ -38,9 +38,9 @@ class GAIAAgent:
         
         # Initialize the model
         if model_id:
-            self.model = HfApiModel(model_id=model_id)
+            self.model = ApiModel(model_id=model_id)
         else:
-            self.model = HfApiModel()
+            self.model = ApiModel()
         
         # Set up default tools for GAIA benchmark
         self.tools = [
