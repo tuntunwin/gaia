@@ -5,9 +5,10 @@ This module provides an AI agent capable of answering GAIA benchmark Level 1 que
 """
 
 import os
+import re
 import time
 import traceback
-from typing import Optional, Dict, Any, TextIO
+from typing import Optional, Dict, Any, TextIO, List, Tuple
 import requests
 from bs4 import BeautifulSoup
 from smolagents import (
@@ -17,6 +18,194 @@ from smolagents import (
     DuckDuckGoSearchTool,
     VisitWebpageTool,
 )
+
+
+# ============================================================================
+# Question Preprocessing & Answer Validation Utilities
+# ============================================================================
+
+def extract_answer_requirements(question: str) -> Dict[str, Any]:
+    """
+    Parse question to extract format requirements before agent execution.
+    
+    Returns dict with:
+        - unit_scale: 'thousands', 'millions', etc. if answer should be scaled
+        - format_type: 'numeric', 'list', 'text', 'name'
+        - separator: for lists (', ' or other)
+        - order: 'alphabetical', 'chronological', None
+        - precision: rounding requirement if specified
+        - specificity: 'first_name', 'last_name', 'full_name', 'species', etc.
+    """
+    q_lower = question.lower()
+    requirements = {
+        'unit_scale': None,
+        'format_type': 'text',
+        'separator': ', ',
+        'order': None,
+        'precision': None,
+        'specificity': None,
+        'numeric_only': False,
+    }
+    
+    # Detect unit scaling requirements
+    if 'thousand hour' in q_lower or 'thousands of hour' in q_lower:
+        requirements['unit_scale'] = 'thousands'
+    elif 'million' in q_lower and ('how many million' in q_lower or 'in million' in q_lower):
+        requirements['unit_scale'] = 'millions'
+    
+    # Detect numeric-only requirements
+    numeric_indicators = [
+        'just give the number', 'just the number', 'give the number',
+        'provide your answer as the number', 'how many', 'what is the number',
+        'numerical integer value'
+    ]
+    if any(ind in q_lower for ind in numeric_indicators):
+        requirements['format_type'] = 'numeric'
+        requirements['numeric_only'] = True
+    
+    # Detect list format requirements
+    if 'comma separated' in q_lower or 'comma-separated' in q_lower:
+        requirements['format_type'] = 'list'
+        requirements['separator'] = ', '
+    if 'alphabetical' in q_lower or 'alphabetize' in q_lower:
+        requirements['order'] = 'alphabetical'
+    
+    # Detect precision/rounding requirements
+    round_match = re.search(r'round[^.]*?(?:to the nearest|nearest|to)\s+(\d+)', q_lower)
+    if round_match:
+        requirements['precision'] = int(round_match.group(1))
+    
+    # Detect name specificity
+    if 'first name only' in q_lower or 'give only the first name' in q_lower:
+        requirements['specificity'] = 'first_name'
+    elif 'last name' in q_lower and 'only' in q_lower:
+        requirements['specificity'] = 'last_name'
+    elif 'surname' in q_lower:
+        requirements['specificity'] = 'surname'
+    
+    # Detect species-level specificity
+    if 'species' in q_lower and 'what species' in q_lower:
+        requirements['specificity'] = 'species'
+    
+    return requirements
+
+
+def validate_answer_format(answer: str, question: str, requirements: Dict[str, Any]) -> Tuple[bool, str, List[str]]:
+    """
+    Validate that the answer matches the question's format requirements.
+    
+    Returns:
+        - is_valid: True if answer appears to match requirements
+        - corrected_answer: Potentially corrected answer
+        - issues: List of detected issues (for logging)
+    """
+    issues = []
+    corrected = answer
+    
+    # Check unit scaling
+    if requirements.get('unit_scale') == 'thousands':
+        # If answer is a large number, it might need scaling
+        try:
+            num = float(answer.replace(',', ''))
+            if num >= 1000 and num == int(num):
+                # Check if the answer looks like it wasn't scaled
+                if num % 1000 == 0:
+                    scaled = int(num / 1000)
+                    issues.append(f"Answer {answer} may need scaling to {scaled} (thousands)")
+                    corrected = str(scaled)
+        except ValueError:
+            pass
+    
+    # Check list format
+    if requirements.get('format_type') == 'list':
+        separator = requirements.get('separator', ', ')
+        # Normalize to comma-space separation first
+        parts = [p.strip() for p in corrected.split(',')]
+        
+        if requirements.get('order') == 'alphabetical':
+            sorted_parts = sorted(parts, key=str.lower)
+            if parts != sorted_parts:
+                issues.append("List may need alphabetical sorting")
+                parts = sorted_parts
+        
+        # Always ensure correct separator
+        new_corrected = separator.join(parts)
+        if new_corrected != corrected:
+            if 'List may need alphabetical sorting' not in issues:
+                issues.append("Normalized list separator")
+            corrected = new_corrected
+    
+    # Check numeric-only requirement
+    if requirements.get('numeric_only'):
+        # Strip any non-numeric content
+        num_match = re.search(r'(-?[\d,]+\.?\d*)', corrected)
+        if num_match and num_match.group(1) != corrected:
+            issues.append("Extracted numeric value from answer")
+            corrected = num_match.group(1).replace(',', '')
+    
+    is_valid = len(issues) == 0
+    return is_valid, corrected, issues
+
+
+def normalize_answer(answer: str) -> str:
+    """
+    Normalize answer for common variations that should match.
+    
+    Handles:
+    - Entity extraction from prose
+    - Compound word variations (sea gull -> seagull)
+    - Extra whitespace
+    - Common punctuation issues
+    """
+    normalized = answer.strip()
+    
+    # Remove trailing punctuation
+    while normalized and normalized[-1] in '.!?,;:':
+        normalized = normalized[:-1].strip()
+    
+    # Common compound word normalizations
+    compound_words = [
+        ('sea gull', 'seagull'),
+        ('e-mail', 'email'),
+        ('on-line', 'online'),
+        ('web site', 'website'),
+    ]
+    lower_norm = normalized.lower()
+    for variant, standard in compound_words:
+        if variant in lower_norm:
+            # Preserve original case pattern if possible
+            normalized = re.sub(re.escape(variant), standard, normalized, flags=re.IGNORECASE)
+    
+    # Normalize whitespace
+    normalized = ' '.join(normalized.split())
+    
+    return normalized
+
+
+def preprocess_question(question: str) -> str:
+    """
+    Preprocess question to handle edge cases that might trigger content filters
+    or need special handling.
+    
+    Handles:
+    - Reversed text detection and reversal
+    - Other adversarial patterns
+    """
+    # Check for reversed text (common pattern in GAIA)
+    # Reversed text often has unusual character patterns
+    words = question.split()
+    
+    # Heuristic: if the question contains what looks like reversed sentences
+    # (periods at the start of words, unusual letter patterns)
+    if question.startswith('.') or (len(words) > 3 and words[0].endswith('.')):
+        # Try reversing the entire question
+        reversed_q = question[::-1]
+        # Check if reversed version looks more like English
+        common_starts = ['if ', 'the ', 'what ', 'how ', 'when ', 'where ', 'who ', 'why ']
+        if any(reversed_q.lower().startswith(s) for s in common_starts):
+            return f"[Note: The following text was reversed and has been corrected]\n{reversed_q}"
+    
+    return question
 
 
 # ============================================================================
@@ -344,6 +533,19 @@ CRITICAL INSTRUCTIONS FOR ANSWERING:
 4. For calculations, ALWAYS write and execute Python code to ensure accuracy
 5. Double-check your calculations and rounding before responding
 6. When a question asks for values in specific units (thousands, millions, etc.), convert appropriately
+
+BEFORE ANSWERING - SELF-CHECK PROTOCOL:
+Before calling final_answer(), ALWAYS verify:
+1. FORMAT CHECK: Does my answer match the exact format requested? (number only? comma-separated? alphabetical?)
+2. UNIT CHECK: If question mentions "thousand/million X", is my answer in the right scale? (e.g., "17 thousand hours" = answer is "17", NOT "17000")
+3. COMPLETENESS CHECK: Did I provide the specific detail asked for? (species name, not just genus; full title, not partial)
+4. SPECIFICITY CHECK: If asked for "first name only" or "surname", did I give ONLY that part?
+
+SEARCH STRATEGY - DIVERSIFY ON FAILURE:
+- If a search returns no results, try: different keywords, removing quotes, shorter query
+- If a website is blocked (403/forbidden), try: alternative sources, cached versions, related pages
+- Never repeat the exact same failed search - always modify your approach
+- Maximum 2 attempts per source before trying a completely different source
 
 COMPLEX PROBLEM-SOLVING STRATEGY:
 For riddles, logic puzzles, or complex multi-step problems:
@@ -799,6 +1001,16 @@ OUTPUT ONLY THE PRECISE ANSWER VALUE, NOTHING ELSE:"""
             self._write_log(f"File: {file_name}")
         self._write_log(f"\nQuestion Text:\n{question}\n")
 
+        # Extract answer requirements for validation
+        requirements = extract_answer_requirements(question)
+        self._write_log(f"Detected requirements: {requirements}")
+
+        # Preprocess question for edge cases (reversed text, etc.)
+        processed_question = preprocess_question(question)
+        if processed_question != question:
+            self._write_log("Question preprocessed (reversed text detected)")
+            question = processed_question
+
         # Handle file attachments
         if file_name:
             question = f"[Note: This question references a file: {file_name}, which you cannot access. If the answer requires the file content, respond with FINAL_ANSWER: Unable to determine - requires file access]\n\n{question}"
@@ -835,6 +1047,19 @@ OUTPUT ONLY THE PRECISE ANSWER VALUE, NOTHING ELSE:"""
             formatted_answer = self._format_answer_with_llm(original_question, final_answer)
             self._write_log(f"[LLM Format] Formatted answer: '{formatted_answer}'")
             final_answer = formatted_answer
+
+        # Validate and potentially correct the answer format
+        is_valid, corrected_answer, issues = validate_answer_format(
+            final_answer, question_data.get("Question", ""), requirements
+        )
+        if issues:
+            self._write_log(f"[Validation] Issues detected: {issues}")
+            self._write_log(f"[Validation] Corrected: '{final_answer}' -> '{corrected_answer}'")
+            final_answer = corrected_answer
+
+        # Apply final normalization
+        final_answer = normalize_answer(final_answer)
+        self._write_log(f"[Normalized] Final answer: '{final_answer}'")
 
         # Log the final answer
         self._write_log(f"\n{'='*60}")
